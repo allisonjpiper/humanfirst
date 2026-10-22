@@ -117,7 +117,7 @@ prompt ─▶ 1. Crisis screen (keywords, no AI) ──▶ emergency card (911 /
   `find_professional`, and `human_support`. Any link it writes that did not come from a tool is removed.
 - **Research agent + Quote picker (daily, background):** the research agent web-searches for recent articles. The server
   fetches each page itself, and the quote picker chooses sentences **by number only**, so every quote is copied from the page.
-  New sources stay hidden until approved on the Sources tab (which only works from the computer running the server).
+  New sources stay hidden until approved on the Admin tab (open on the computer running the server, or with ADMIN_PASSWORD online).
 - **Cost controls:** a shared verdict cache (the same question is never classified twice), provider prompt
   caching (about 85% of gatekeeper input tokens are cached), no AI call for crises, repeats, or searchable
   cards, per-call token limits, 12 prompts per minute and 60k tokens per day per user, and a 2M tokens per day
@@ -174,5 +174,5 @@ data/             created on first run (local database, eval results)
 
 - claude.ai's page layout is not a public API. If Anthropic changes it, update the selectors at the top of
   `extension/content.js`.
-- Accounts are username-only (no password) and stored locally. They are not linked to your Claude account.
+- Accounts are a username plus a private sign-in code. They are not linked to your Claude account.
 - Footprint numbers are estimates from public data, not measurements of Claude.

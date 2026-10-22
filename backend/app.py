@@ -72,7 +72,7 @@ sources.init()  # creates the source tables and the three pinned sources (idempo
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # Look for new research in the background (at most once a day). Users never wait on it,
-    # and nothing it finds is shown until the owner approves it on the Sources tab.
+    # and nothing it finds is shown until the owner approves it on the Admin tab.
     task = asyncio.create_task(sources.refresh("startup")) if PORTKEY_API_KEY else None
     yield
     if task and not task.done():

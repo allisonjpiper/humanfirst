@@ -6,7 +6,7 @@ Research sources and the quotes shown on Human First's redirect and repeat cards
 Two kinds of sources:
   pinned    the three required sources, with hand-checked verbatim quotes
   found     discovered by the research agent; they wait as "pending" until the
-            owner approves them on the dashboard's Sources tab
+            owner approves them on the dashboard's Admin tab
 
 How a new source is found (at server start, at most once a day):
   1. Research agent (gpt-6-luna + web search) returns titles and URLs only.
@@ -215,7 +215,7 @@ def pick_quotes(category: str, n: int = 1) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Owner review (dashboard Sources tab)
+# Owner review (dashboard Admin tab)
 # ---------------------------------------------------------------------------
 
 def list_sources() -> list[dict]:
