@@ -103,7 +103,7 @@
     }
     const r = res.data;
     if (r.decision === "allow") {
-      showToast(footprintText(r.footprint, true), r.injection_attempt ? "Human First noticed instructions aimed at it and checked the real question." : null);
+      showToast(footprintText(r.footprint, true, false, r.check), r.injection_attempt ? "Human First noticed instructions aimed at it and checked the real question." : null);
       releaseSend();
     } else if (r.decision === "repeat") {
       hideToast();
@@ -162,14 +162,17 @@
     const who = (c.who_to_talk_to || []).map((w) => `<li>${esc(w)}</li>`).join("");
     const links = (c.resources || []).map((l) => `<a href="${safeUrl(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a>`).join("");
     const hint = cat === "crisis" ? "" : `<div class="note">Still want to ask Claude? Send it again and Human First will show you what that costs first.</div>`;
-    const inj = r.injection_attempt ? `<div class="note">This prompt tried to give Human First instructions, so it checked the real question instead.</div>` : "";
+    const inj = !r.injection_attempt ? "" : cat === "filtered"
+      ? `<div class="note">This prompt tried to give Human First instructions and couldn't be checked safely, so it was blocked rather than sent unchecked.</div>`
+      : `<div class="note">This prompt tried to give Human First instructions, so it checked the real question instead.</div>`;
     return `<div class="card cat-${esc(cat)}">
       <span class="tag">${esc(LABELS[cat] || cat)}</span>
       <h2>${esc(c.headline)}</h2>
       <p>${esc(c.message)}</p>
       ${who ? `<div class="small">Who to turn to</div><ul>${who}</ul>` : ""}
       <div class="links">${links}</div>
-      <div class="foot">${esc(footprintText(r.footprint, false))}</div>
+      ${quoteHtml(c.quote)}
+      <div class="foot">${esc(footprintText(r.footprint, false, false, r.check))}</div>
       ${inj}${hint}
       <div class="actions"><button class="primary" data-close>Got it</button></div>
     </div>`;
@@ -178,23 +181,32 @@
   function repeatHtml(r) {
     const cites = (r.citations || []).map((c) => `<div class="cite">
       <a href="${safeUrl(c.url)}" target="_blank" rel="noopener noreferrer">${esc(c.title)}</a>
-      <div class="src">${esc(c.source)}</div><div>${esc(c.takeaway)}</div></div>`).join("");
+      <div class="src">${esc(c.source)}${c.new ? ' <span class="new">new</span>' : ""}</div>
+      <blockquote>“${esc(c.quote)}”${c.speaker ? `<span class="who">— ${esc(c.speaker)}</span>` : ""}</blockquote></div>`).join("");
     return `<div class="card cat-repeat">
       <span class="tag">You asked again</span>
       <h2>Before you ask again, here is what the research says</h2>
       <p>You were pointed elsewhere on this a moment ago. AI answers carry real costs: to the planet, and to the human
         connections that questions like this one build.</p>
       ${cites}
-      <div class="foot">${esc(footprintText(r.footprint, true, true))}</div>
+      <div class="foot">${esc(footprintText(r.footprint, true, true, r.check))}</div>
       <div class="actions">
         <button class="primary" data-close>I'll ask a person</button>
         <button class="secondary" data-override>Ask Claude anyway</button>
       </div></div>`;
   }
 
-  function footprintText(fp, sent, hypothetical = false) {
+  function footprintText(fp, sent, hypothetical = false, check = null) {
     const lead = hypothetical ? "Asking Claude would use about" : sent ? "This prompt used about" : "Not asking AI saved about";
-    return `${lead} ${num(fp.kwh)} kWh (${fp.energy_comparison}) and ${num(fp.gallons)} gal of water (${fp.water_comparison}).`;
+    const chk = check && check.kwh ? ` Checking it used about ${num(check.kwh)} kWh and ${num(check.gallons)} gal, added to your total.` : "";
+    return `${lead} ${num(fp.kwh)} kWh (${fp.energy_comparison}) and ${num(fp.gallons)} gal of water (${fp.water_comparison}).${chk}`;
+  }
+
+  function quoteHtml(q) {
+    if (!q) return "";
+    return `<div class="quote"><blockquote>“${esc(q.quote)}”${q.speaker ? `<span class="who">— ${esc(q.speaker)}</span>` : ""}</blockquote>
+      <a href="${safeUrl(q.url)}" target="_blank" rel="noopener noreferrer">${esc(q.title)}</a>
+      <div class="src">${esc(q.source)}${q.new ? ' <span class="new">new</span>' : ""}</div></div>`;
   }
 
   function num(x) { return !x ? "0" : x >= 1 ? x.toFixed(2) : Number(x.toPrecision(2)).toString(); }
@@ -218,7 +230,7 @@
         display: flex; align-items: center; justify-content: center; padding: 20px; }
       .modal { max-width: 560px; width: 100%; max-height: 85vh; overflow: auto; }
       .card { background: #fffdf8; color: #23302a; border-radius: 16px; padding: 22px 24px; font-size: 15px;
-        line-height: 1.5; box-shadow: 0 10px 40px rgba(0,0,0,.25); border-left: 6px solid #3f6f5a; }
+        line-height: 1.5; box-shadow: 0 10px 40px rgba(0,0,0,.25); border-top: 6px solid #3f6f5a; }
       .card h2 { font-size: 20px; margin: 6px 0 6px; line-height: 1.25; }
       .card p { margin: 4px 0 10px; }
       .card ul { margin: 4px 0 12px; padding-left: 20px; }
@@ -237,16 +249,21 @@
       .cite { border-top: 1px solid #e4ded1; padding: 9px 0; font-size: 14px; }
       .cite a { color: #3f6f5a; font-weight: 700; }
       .src { font-size: 12px; color: #6b756f; }
-      .cat-personal { border-left-color: #b8603c; } .cat-personal .tag { background: #f6e3d8; color: #b8603c; }
+      blockquote { margin: 6px 0 4px; padding: 0 0 0 12px; border-left: 3px solid #d8d1c2; font-style: italic; font-size: 14px; }
+      blockquote .who { display: block; font-style: normal; font-size: 12px; color: #6b756f; margin-top: 2px; }
+      .quote { background: #f6f3ec; border-radius: 10px; padding: 10px 12px; margin: 6px 0 4px; font-size: 13px; }
+      .quote a { color: #3f6f5a; font-weight: 700; text-decoration: none; }
+      .new { background: #e3eee7; color: #3f6f5a; font-weight: 700; font-size: 10px; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; }
+      .cat-personal { border-top-color: #b8603c; } .cat-personal .tag { background: #f6e3d8; color: #b8603c; }
       .cat-personal .links a { color: #b8603c; }
-      .cat-high_stakes, .cat-filtered { border-left-color: #2f6690; }
+      .cat-high_stakes, .cat-filtered { border-top-color: #2f6690; }
       .cat-high_stakes .tag, .cat-filtered .tag { background: #e0ecf5; color: #2f6690; }
       .cat-high_stakes .links a, .cat-filtered .links a { color: #2f6690; }
-      .cat-searchable { border-left-color: #a07a1c; } .cat-searchable .tag { background: #f5ecd2; color: #a07a1c; }
+      .cat-searchable { border-top-color: #a07a1c; } .cat-searchable .tag { background: #f5ecd2; color: #a07a1c; }
       .cat-searchable .links a { color: #a07a1c; }
-      .cat-crisis { border-left-color: #b3261e; background: #fbe3e1; } .cat-crisis .tag { background: #b3261e; color: #fff; }
+      .cat-crisis { border-top-color: #b3261e; background: #fbe3e1; } .cat-crisis .tag { background: #b3261e; color: #fff; }
       .cat-crisis .links a { color: #b3261e; background: #fff; }
-      .cat-repeat { border-left-color: #23302a; } .cat-repeat .tag { background: #23302a; color: #fff; }
+      .cat-repeat { border-top-color: #23302a; } .cat-repeat .tag { background: #23302a; color: #fff; }
     `;
   }
 })();

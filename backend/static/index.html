@@ -20,10 +20,13 @@
     <nav class="tabs" id="tabs" hidden>
       <button data-tab="chat" class="active">Try it</button>
       <button data-tab="footprint">My footprint</button>
+      <button data-tab="sources">Admin <span class="badge" id="pendingBadge" hidden></span></button>
       <button data-tab="about">How it works</button>
     </nav>
     <div class="user" id="userbox" hidden>
       <span id="username"></span>
+      <span class="code-chip" title="Your private sign-in code. Use it in the Chrome extension or on another device.">
+        code <b id="mycode"></b> <button class="link" id="copyCode" type="button">copy</button></span>
       <button class="link" id="logout">Sign out</button>
     </div>
   </header>
@@ -34,13 +37,21 @@
       <h1>Sign in to track your footprint</h1>
       <p>Use the same name here and in the Human First Chrome extension, so every prompt you send to Claude
         is added to one lifetime total.</p>
-      <form id="loginForm">
+      <form id="loginForm" class="login-form">
         <input id="loginName" placeholder="Pick a username, e.g. allison" autocomplete="username" required>
+        <input id="loginCode" placeholder="Sign-in code (only if you've used Human First before)" autocomplete="off">
         <button class="primary" type="submit">Continue</button>
       </form>
-      <p class="muted small" id="loginError"></p>
-      <p class="muted small">No password needed in this prototype. Your data stays in a database on this computer.</p>
+      <p class="error small" id="loginError"></p>
+      <p class="muted small">New here? Just pick a username. You'll get a private sign-in code that keeps your history yours.
+        <b>Privacy:</b> the prompts you type are stored on the Human First server so your footprint can be shown. Please don't
+        type anything you wouldn't want the app's owner to see.</p>
     </section>
+
+    <div class="callout-code" id="codeNote" hidden>
+      <b>Your sign-in code is in the top-right corner.</b> Save it: you'll need it to sign in on another device or to connect
+      the Chrome extension. <button class="link" type="button" onclick="this.parentElement.hidden=true">Got it</button>
+    </div>
 
     <!-- Chat -->
     <section id="chat" class="panel" hidden>
@@ -50,6 +61,16 @@
           <p class="muted">Type anything you would ask Claude. Human First checks it first. Prompts that pass are
             answered by a stand-in model here; with the Chrome extension, they go to Claude itself.</p>
           <div class="chips" id="examples"></div>
+          <details class="ext-help">
+            <summary><b>Use it on claude.ai:</b> get the Chrome extension</summary>
+            <ol>
+              <li><a href="/extension.zip">Download the extension</a> and unzip it.</li>
+              <li>In Chrome, open <code>chrome://extensions</code> and turn on <b>Developer mode</b> (top right).</li>
+              <li>Click <b>Load unpacked</b> and choose the unzipped <code>human-first-extension</code> folder.</li>
+              <li>Click the Human First icon (puzzle-piece menu), enter your username and sign-in code (top right of this page), and click <b>Save and connect</b>.</li>
+              <li>Send a prompt on <a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a>.</li>
+            </ol>
+          </details>
         </div>
         <div id="messages" class="messages" aria-live="polite"></div>
         <form id="chatForm" class="composer">
@@ -71,16 +92,47 @@
           <div id="bars"></div>
         </div>
         <div class="card">
-          <h3>Gatekeeper's own cost</h3>
-          <p class="muted small">Checking prompts uses AI too. We count it so the savings are honest.</p>
+          <h3>Checking cost (included in your total)</h3>
+          <p class="muted small">Checking prompts uses AI too. It is added to your lifetime "used" total so nothing is hidden.</p>
           <div id="gatecost"></div>
         </div>
       </div>
       <div class="card">
         <h3>Prompt history</h3>
         <div class="table-wrap"><table id="history"><thead><tr>
-          <th>When</th><th>From</th><th>Prompt</th><th>Decision</th><th>Energy (kWh)</th><th>Water (gal)</th><th>Tokens</th>
+          <th>When</th><th>From</th><th>Prompt</th><th>Decision</th><th>Energy used (kWh)</th><th>Water used (gal)</th><th>Tokens</th>
         </tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- Admin: sources + feedback (owner only) -->
+    <section id="sources" class="panel" hidden>
+      <div id="adminGate" class="card login" hidden>
+        <h2>Admin</h2>
+        <p class="muted">Reviewing research sources and reading feedback is for the app's owner.</p>
+        <form id="adminForm" class="login-form"><input id="adminPw" type="password" placeholder="Admin password" required>
+          <button class="primary" type="submit">Unlock</button></form>
+        <p class="error small" id="adminErr"></p>
+      </div>
+      <div id="adminArea">
+      <div class="card">
+        <h2>Feedback</h2>
+        <p class="muted small" id="feedbackSummary"></p>
+        <div class="table-wrap"><table><thead><tr><th>When</th><th>User</th><th>Rating</th><th>Keep using?</th><th>Page</th><th>Comment</th></tr></thead>
+          <tbody id="feedbackList"></tbody></table></div>
+      </div>
+      <div class="sources-head">
+        <div>
+          <h2>Research sources</h2>
+          <p class="muted">Quotes on redirect cards rotate through these. A research agent searches the web for new
+            articles when Human First starts (at most once a day). Every quote is a sentence copied from the article
+            itself. New sources stay hidden from users until you approve them.</p>
+        </div>
+        <button class="secondary" id="searchNow">Search for new sources now</button>
+      </div>
+      <p class="small muted" id="searchStatus"></p>
+      <div id="sourceList"></div>
+      <details class="card"><summary><b>Research runs</b> (tokens and results)</summary><div id="runList"></div></details>
       </div>
     </section>
 
@@ -117,6 +169,35 @@
       <div id="aboutCitations"></div>
     </section>
   </main>
+
+  <button class="feedback-btn" id="feedbackBtn" hidden>Give feedback</button>
+  <div class="modal-backdrop" id="feedbackModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="fbTitle">
+      <button class="link close" id="fbClose" type="button" aria-label="Close">✕</button>
+      <h2 id="fbTitle">How is Human First working for you?</h2>
+      <form id="fbForm">
+        <div class="fb-label">Overall rating</div>
+        <div class="stars">
+          <label><input type="radio" name="fbRating" value="1"><span>1</span></label>
+          <label><input type="radio" name="fbRating" value="2"><span>2</span></label>
+          <label><input type="radio" name="fbRating" value="3"><span>3</span></label>
+          <label><input type="radio" name="fbRating" value="4"><span>4</span></label>
+          <label><input type="radio" name="fbRating" value="5"><span>5</span></label>
+        </div>
+        <div class="fb-label">Would you keep using it with Claude?</div>
+        <div class="stars">
+          <label><input type="radio" name="fbKeep" value="yes"><span>Yes</span></label>
+          <label><input type="radio" name="fbKeep" value="maybe"><span>Maybe</span></label>
+          <label><input type="radio" name="fbKeep" value="no"><span>No</span></label>
+        </div>
+        <div class="fb-label">What worked, what didn't, what was wrongly blocked or let through?</div>
+        <textarea id="fbComment" rows="4" maxlength="2000" placeholder="Anything helps, even one sentence."></textarea>
+        <p class="error small" id="fbErr"></p>
+        <button class="primary" type="submit">Send feedback</button>
+      </form>
+      <div id="fbThanks" hidden><p><b>Thank you!</b> Your feedback goes straight to the person building Human First.</p></div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

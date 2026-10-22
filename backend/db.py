@@ -50,6 +50,15 @@ CREATE TABLE IF NOT EXISTS events (
     latency_ms         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS events_user ON events(username, created_at);
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    username    TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    rating      INTEGER NOT NULL,          -- 1-5
+    keep_using  TEXT NOT NULL DEFAULT '',  -- yes | maybe | no
+    comment     TEXT NOT NULL DEFAULT '',
+    page        TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS verdict_cache (
     prompt_hash TEXT PRIMARY KEY,
     verdict     TEXT NOT NULL,
@@ -67,6 +76,23 @@ def _connect() -> sqlite3.Connection:
 
 _conn = _connect()
 _conn.executescript(SCHEMA)
+
+
+def _add_missing_columns() -> None:
+    """Upgrade databases created by earlier versions of the app."""
+    wanted = {
+        "users": {"code": "TEXT"},  # private sign-in code
+        "events": {"answer_input_tokens": "INTEGER NOT NULL DEFAULT 0",  # stand-in answers in the web chat
+                   "answer_output_tokens": "INTEGER NOT NULL DEFAULT 0"},
+    }
+    for table, cols in wanted.items():
+        have = {r[1] for r in _conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for col, decl in cols.items():
+            if col not in have:
+                _conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
+_add_missing_columns()
 _conn.commit()
 
 
@@ -91,6 +117,47 @@ def ensure_user(username: str) -> None:
             (username, now().isoformat()),
         )
         _conn.commit()
+
+
+def user_code(username: str) -> str | None:
+    with _lock:
+        row = _conn.execute("SELECT code FROM users WHERE username = ?", (username,)).fetchone()
+    return row["code"] if row else None
+
+
+def user_exists(username: str) -> bool:
+    with _lock:
+        return _conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone() is not None
+
+
+def set_user_code(username: str, code: str) -> None:
+    with _lock:
+        _conn.execute("UPDATE users SET code = ? WHERE username = ?", (code, username))
+        _conn.commit()
+
+
+# --- feedback ------------------------------------------------------------
+
+def add_feedback(username: str, rating: int, keep_using: str, comment: str, page: str) -> None:
+    with _lock:
+        _conn.execute(
+            "INSERT INTO feedback(username, created_at, rating, keep_using, comment, page) VALUES (?,?,?,?,?,?)",
+            (username, now().isoformat(), rating, keep_using, comment, page),
+        )
+        _conn.commit()
+
+
+def feedback_count_last_hour(username: str) -> int:
+    since = (now() - timedelta(hours=1)).isoformat()
+    with _lock:
+        return _conn.execute("SELECT COUNT(*) FROM feedback WHERE username = ? AND created_at >= ?",
+                             (username, since)).fetchone()[0]
+
+
+def all_feedback() -> list[dict]:
+    with _lock:
+        rows = _conn.execute("SELECT * FROM feedback ORDER BY id DESC").fetchall()
+    return [dict(r) for r in rows]
 
 
 # --- events --------------------------------------------------------------
@@ -125,13 +192,22 @@ def requests_last_minute(username: str) -> int:
 
 def tokens_today(username: str | None = None) -> int:
     since = now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    sql = "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM events WHERE created_at >= ?"
+    sql = ("SELECT COALESCE(SUM(input_tokens + output_tokens + answer_input_tokens + answer_output_tokens), 0) "
+           "FROM events WHERE created_at >= ?")
     args: tuple = (since,)
     if username:
         sql += " AND username = ?"
         args += (username,)
     with _lock:
         return _conn.execute(sql, args).fetchone()[0]
+
+
+def add_answer_tokens(event_id: int, input_tokens: int, output_tokens: int) -> None:
+    """Record the stand-in answer's tokens so they count toward the daily budgets."""
+    with _lock:
+        _conn.execute("UPDATE events SET answer_input_tokens = ?, answer_output_tokens = ? WHERE id = ?",
+                      (input_tokens, output_tokens, event_id))
+        _conn.commit()
 
 
 def user_events(username: str, limit: int = 200) -> list[dict]:
@@ -185,18 +261,19 @@ def all_token_stats() -> list[dict]:
 
 # --- verdict cache -------------------------------------------------------
 
-def cached_verdict(text: str) -> dict | None:
+def cached_verdict(text: str, version: str = "") -> dict | None:
+    """A verdict is reused only if it came from the same gatekeeper instructions (version)."""
     with _lock:
         row = _conn.execute(
-            "SELECT verdict FROM verdict_cache WHERE prompt_hash = ?", (prompt_hash(text),)
+            "SELECT verdict FROM verdict_cache WHERE prompt_hash = ?", (prompt_hash(version + "|" + text),)
         ).fetchone()
     return json.loads(row["verdict"]) if row else None
 
 
-def store_verdict(text: str, verdict: dict) -> None:
+def store_verdict(text: str, verdict: dict, version: str = "") -> None:
     with _lock:
         _conn.execute(
             "INSERT OR REPLACE INTO verdict_cache(prompt_hash, verdict, created_at) VALUES (?, ?, ?)",
-            (prompt_hash(text), json.dumps(verdict), now().isoformat()),
+            (prompt_hash(version + "|" + text), json.dumps(verdict), now().isoformat()),
         )
         _conn.commit()

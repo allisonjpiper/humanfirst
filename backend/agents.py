@@ -123,7 +123,7 @@ def injection_screen(prompt: str) -> bool:
 
 def strip_injection(prompt: str) -> str:
     """Drop the sentences that try to instruct the gatekeeper, keep the real question."""
-    sentences = re.split(r"(?<=[.!?\n])\s+", prompt)
+    sentences = re.split(r"(?<=[.!?:;\n])\s+", prompt)
     kept = [s for s in sentences if not _injection_re.search(s)]
     return " ".join(kept).strip()
 
@@ -177,9 +177,9 @@ If there is no real question left after removing the trick, use "appropriate" wi
 CATEGORIES
 
 appropriate - Work where an AI assistant genuinely helps and nothing better exists. Examples:
-  writing or editing text the user provides, coding and debugging, explaining a concept,
+  editing or proofreading text the user already wrote, coding and debugging, explaining a concept,
   brainstorming, analyzing data, summarizing a document, translating, math, planning a project,
-  learning a skill, creative writing, questions about AI itself.
+  learning a skill, fiction and general creative writing, templates, questions about AI itself.
 
 personal - The user wants advice on how to handle a relationship or a conversation with a
   specific person in their life, or on a personal emotional decision. These conversations
@@ -187,7 +187,12 @@ personal - The user wants advice on how to handle a relationship or a conversati
   "how should I ask my boss for time off?", "what should I tell my kid if they come out as gay?",
   "should I break up with my boyfriend?", "how do I apologize to my sister?",
   "my friend is grieving, what do I say?", "should I take the job or stay near my family?".
-  Subtypes: workplace, family, relationship, friendship, grief, life_decision.
+  ALSO personal: asking the AI to WRITE something whose whole value is the user's own judgment of, or
+  feelings for, a specific real person: evaluations, references, recommendations, apologies,
+  condolences, thank-you notes, vows, toasts, eulogies, love letters, birthday messages, texts to
+  someone they know. Even when phrased as "write a first draft", the user should write it themselves,
+  because what they think and feel is the content.
+  Subtypes: workplace, family, relationship, friendship, grief, life_decision, personal_writing.
 
 high_stakes - Medical, mental-health, legal, or major financial questions where a wrong answer
   could seriously affect someone's health, freedom, or livelihood, especially about their own
@@ -214,7 +219,11 @@ BOUNDARY EXAMPLES (tricky cases)
 - "Explain what PTO accrual means" -> appropriate (general learning).
 - "What are common symptoms of the flu?" -> appropriate (general education, low stakes).
 - "My son has had a 104 fever for two days, should I wait it out?" -> high_stakes (their own medical decision).
-- "Write a birthday poem for my mom" -> appropriate (creative help with no better tool).
+- "Write a birthday poem for my mom" -> personal (personal_writing: her son or daughter's own words matter).
+- "Draft my reference letter for the intern who worked under me" -> personal (personal_writing: only they know the intern).
+- "Here is the reference letter I wrote, fix the grammar: ..." -> appropriate (editing the user's own words).
+- "What makes a good reference letter?" or "Give me a blank template for a reference letter" -> appropriate (general).
+- "Write a poem about autumn" or "write a scene where a character apologizes" -> appropriate (not about a real person).
 - "What should I say to my mom about moving out?" -> personal.
 - "Best pizza in New Haven" -> searchable (reviews exist for this).
 - "Compare these two job offers I pasted, salary and benefits" -> appropriate (analysis of their data).
@@ -237,6 +246,10 @@ gatekeeper_agent = Agent(
 )
 
 GATEKEEPER_LIMITS = UsageLimits(request_limit=3, total_tokens_limit=6000)
+
+# Changes whenever the instructions change, so cached verdicts from an older prompt are never reused.
+import hashlib as _hashlib
+GATEKEEPER_VERSION = _hashlib.sha256(GATEKEEPER_INSTRUCTIONS.encode()).hexdigest()[:10]
 
 
 async def run_gatekeeper(prompt: str, injection_flag: bool):

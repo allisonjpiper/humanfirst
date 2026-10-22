@@ -19,11 +19,15 @@ Endpoints
 
 from __future__ import annotations
 
+import asyncio
 import difflib
+from contextlib import asynccontextmanager
 import os
 import re
+import secrets
 import sys
 import time
+from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -31,16 +35,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+import io
+import zipfile
+
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import agents
 import db
-from citations import citations_for
+import sources
 from config import (
+    ADMIN_PASSWORD,
+    NEW_ACCOUNTS_PER_IP_PER_HOUR,
     GLOBAL_DAILY_TOKEN_BUDGET,
     HOST,
     MAX_PROMPT_CHARS,
@@ -57,7 +66,20 @@ from footprint import describe, estimate_tokens, gatekeeper_footprint, prompt_fo
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="Human First")
+sources.init()  # creates the source tables and the three pinned sources (idempotent)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Look for new research in the background (at most once a day). Users never wait on it,
+    # and nothing it finds is shown until the owner approves it on the Sources tab.
+    task = asyncio.create_task(sources.refresh("startup")) if PORTKEY_API_KEY else None
+    yield
+    if task and not task.done():
+        task.cancel()
+
+
+app = FastAPI(title="Human First", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://claude.ai"],
@@ -74,6 +96,7 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{2,40}$")
 
 class LoginIn(BaseModel):
     username: str
+    code: str = ""
 
 
 class PromptIn(BaseModel):
@@ -83,12 +106,48 @@ class PromptIn(BaseModel):
     override: bool = False
 
 
-def check_username(username: str) -> str:
+class FeedbackIn(BaseModel):
+    username: str
+    rating: int = Field(ge=1, le=5)
+    keep_using: str = Field(default="", pattern="^(|yes|maybe|no)$")
+    comment: str = Field(default="", max_length=2000)
+    page: str = Field(default="", max_length=40)
+
+
+def clean_username(username: str) -> str:
     username = username.strip().lower()
     if not USERNAME_RE.match(username):
         raise HTTPException(400, "Usernames are 2-40 letters, numbers, or . _ @ -")
+    return username
+
+
+def check_username(username: str) -> str:
+    """Validate and create the user if needed (used by internal calls and tests)."""
+    username = clean_username(username)
     db.ensure_user(username)
     return username
+
+
+def authed(username: str, code: str | None) -> str:
+    """Every user endpoint needs the user's private sign-in code, so nobody can read someone else's prompts."""
+    username = clean_username(username)
+    real = db.user_code(username)
+    if not real or not code or not secrets.compare_digest(real, code.strip().upper()):
+        raise HTTPException(401, "Please sign in again (your sign-in code is missing or wrong).")
+    return username
+
+
+def client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "?")
+
+
+_new_accounts: dict[str, deque] = defaultdict(deque)
+
+
+def new_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O or 1/I mix-ups
+    return "-".join("".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(2))
 
 
 # --- helpers -------------------------------------------------------------
@@ -158,7 +217,15 @@ def footprint_payload(prompt: str) -> dict:
 # --- core decision -------------------------------------------------------
 
 async def decide(username: str, prompt: str, source: str) -> dict:
-    """Run one prompt through the full pipeline and log it."""
+    """Run one prompt through the full pipeline, log it, and report what checking it cost."""
+    checked = {"kwh": 0.0, "gallons": 0.0, "event_id": None}
+    result = await _decide(username, prompt, source, checked)
+    result["check"] = describe(checked["kwh"], checked["gallons"])
+    result["event_id"] = checked["event_id"]
+    return result
+
+
+async def _decide(username: str, prompt: str, source: str, checked: dict) -> dict:
     budget_guard(username)
     started = time.perf_counter()
     prompt = prompt.strip()
@@ -169,8 +236,9 @@ async def decide(username: str, prompt: str, source: str) -> dict:
     def log(decision, category, reason, usage=None, cache_hit=False, subtype="") -> int:
         u = usage or {"input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "model_calls": 0}
         gate = gatekeeper_footprint(u["input_tokens"] + u["output_tokens"]) if u["model_calls"] else {"kwh": 0, "gallons": 0}
+        checked.update(gate)  # Human First's own cost for this prompt, shown to the user and added to their total
         sent = decision == "allow"
-        return db.add_event(
+        checked["event_id"] = db.add_event(
             username=username, source=source, prompt=prompt[:MAX_PROMPT_CHARS], decision=decision,
             category=category, subtype=subtype, reason=reason,
             ai_kwh=central["kwh"] if sent else 0, ai_gallons=central["gallons"] if sent else 0,
@@ -178,6 +246,7 @@ async def decide(username: str, prompt: str, source: str) -> dict:
             gate_kwh=gate["kwh"], gate_gallons=gate["gallons"],
             cache_hit=int(cache_hit), latency_ms=int((time.perf_counter() - started) * 1000), **u,
         )
+        return checked["event_id"]
 
     base = {"footprint": fp, "truncated": truncated}
 
@@ -191,11 +260,11 @@ async def decide(username: str, prompt: str, source: str) -> dict:
     if earlier:
         log("repeat", earlier["category"], "Asked again")
         return {**base, "decision": "repeat", "category": earlier["category"],
-                "earlier_prompt": earlier["prompt"], "citations": citations_for(earlier["category"])}
+                "earlier_prompt": earlier["prompt"], "citations": sources.pick_quotes(earlier["category"], 3)}
 
     # 3. Gatekeeper (with a shared cache so the same question is never classified twice).
     injection_flag = agents.injection_screen(prompt)
-    verdict_dict = db.cached_verdict(prompt)
+    verdict_dict = db.cached_verdict(prompt, agents.GATEKEEPER_VERSION)
     gate_usage = None
     cache_hit = verdict_dict is not None
     if verdict_dict is None:
@@ -205,14 +274,14 @@ async def decide(username: str, prompt: str, source: str) -> dict:
             # Fail closed: the provider's filter would not even read it, so it is not sent to Claude.
             log("redirect", "filtered", "Provider safety filter refused the prompt", subtype="filtered")
             return {**base, "decision": "redirect", "category": "filtered", "injection_attempt": True,
-                    "card": agents.FILTERED_CARD}
+                    "card": {**agents.FILTERED_CARD, "quote": next(iter(sources.pick_quotes("filtered", 1)), None)}}
         except Exception as exc:  # model down, budget hit, bad output: fail open, say so
             log("allow", "unchecked", f"Gatekeeper error: {type(exc).__name__}")
             return {**base, "decision": "allow", "category": "unchecked",
                     "reason": "Human First couldn't check this prompt, so it was sent as usual.",
                     "error": type(exc).__name__}
         verdict_dict = verdict.model_dump()
-        db.store_verdict(prompt, verdict_dict)
+        db.store_verdict(prompt, verdict_dict, agents.GATEKEEPER_VERSION)
     verdict = agents.GateVerdict(**verdict_dict)
 
     blocked = verdict.category != "appropriate" and verdict.confidence >= agents.BLOCK_CONFIDENCE
@@ -228,7 +297,7 @@ async def decide(username: str, prompt: str, source: str) -> dict:
     if earlier:
         log("repeat", verdict.category, "Asked again (rephrased)", usage_numbers(gate_usage), cache_hit, verdict.subtype)
         return {**base, "decision": "repeat", "category": verdict.category, "verdict": verdict_dict,
-                "earlier_prompt": earlier["prompt"], "citations": citations_for(verdict.category)}
+                "earlier_prompt": earlier["prompt"], "citations": sources.pick_quotes(verdict.category, 3)}
 
     # 5. Redirect card.
     redirect_usage = None
@@ -236,9 +305,13 @@ async def decide(username: str, prompt: str, source: str) -> dict:
         card = agents.searchable_card(verdict)  # no model call needed
     else:
         try:
-            card, redirect_usage = await agents.run_redirect(prompt, verdict)
+            # Give the redirect agent only the real question, never the injected instructions.
+            clean = agents.strip_injection(prompt) if injection_flag else prompt
+            card, redirect_usage = await agents.run_redirect(clean or prompt, verdict)
         except Exception:
             card = agents.fallback_card(verdict.category, verdict.search_query)
+    # A fresh, verbatim research quote on every redirect card (rotates; least-shown first).
+    card["quote"] = next(iter(sources.pick_quotes(verdict.category, 1)), None)
     log("redirect", verdict.category, verdict.reason, usage_numbers(gate_usage, redirect_usage), cache_hit, verdict.subtype)
     return {**base, "decision": "redirect", "category": verdict.category, "verdict": verdict_dict,
             "card": card, "injection_attempt": verdict.injection_attempt or injection_flag}
@@ -252,35 +325,56 @@ def health():
 
 
 @app.post("/api/login")
-def login(body: LoginIn):
-    username = check_username(body.username)
-    return {"username": username}
+def login(body: LoginIn, request: Request):
+    """New name: create the account and hand out its private code. Existing name: the code is required."""
+    username = clean_username(body.username)
+    code = body.code.strip().upper()
+    if db.user_exists(username) and db.user_code(username):
+        if not code or not secrets.compare_digest(db.user_code(username), code):
+            raise HTTPException(403, "That username is taken. Enter its sign-in code, or pick a different name.")
+        return {"username": username, "code": code, "new": False}
+    if not db.user_exists(username):
+        ip, window = client_ip(request), _new_accounts[client_ip(request)]
+        while window and time.time() - window[0] > 3600:
+            window.popleft()
+        if len(window) >= NEW_ACCOUNTS_PER_IP_PER_HOUR:
+            raise HTTPException(429, "Too many new accounts from this network in the last hour.")
+        window.append(time.time())
+    db.ensure_user(username)
+    code = new_code()  # also covers accounts made before sign-in codes existed
+    db.set_user_code(username, code)
+    return {"username": username, "code": code, "new": True}
 
 
 @app.post("/api/check")
-async def check(body: PromptIn):
-    username = check_username(body.username)
+async def check(body: PromptIn, x_human_first_code: str = Header(default="")):
+    username = authed(body.username, x_human_first_code)
     return await decide(username, body.prompt, body.source)
 
 
-@app.post("/api/override")
-def override(body: PromptIn):
+def record_override(username: str, prompt: str, source: str) -> dict:
     """The user saw the citations and chose to ask AI anyway. Respect it, and count it."""
-    username = check_username(body.username)
-    fp = footprint_payload(body.prompt)
+    fp = footprint_payload(prompt)
     c = fp["range"]["central"]
-    db.add_event(username=username, source=body.source, prompt=body.prompt[:MAX_PROMPT_CHARS],
-                 decision="override", category="override", reason="User chose to ask AI anyway",
-                 ai_kwh=c["kwh"], ai_gallons=c["gallons"])
-    return {"ok": True, "footprint": fp}
+    event_id = db.add_event(username=username, source=source, prompt=prompt[:MAX_PROMPT_CHARS],
+                            decision="override", category="override", reason="User chose to ask AI anyway",
+                            ai_kwh=c["kwh"], ai_gallons=c["gallons"])
+    return {"ok": True, "footprint": fp, "event_id": event_id}
+
+
+@app.post("/api/override")
+def override(body: PromptIn, x_human_first_code: str = Header(default="")):
+    username = authed(body.username, x_human_first_code)
+    return record_override(username, body.prompt, body.source)
 
 
 @app.post("/api/chat")
-async def chat(body: PromptIn):
+async def chat(body: PromptIn, x_human_first_code: str = Header(default="")):
     """Web test chat: the same gate as the extension, then a stand-in model answers allowed prompts."""
-    username = check_username(body.username)
+    username = authed(body.username, x_human_first_code)
     if body.override:
-        result = override(body)
+        budget_guard(username)
+        result = record_override(username, body.prompt, "web")
         result["decision"] = "override"
     else:
         result = await decide(username, body.prompt, "web")
@@ -289,20 +383,22 @@ async def chat(body: PromptIn):
             answer, usage = await agents.run_answer(body.prompt)
             result["answer"] = answer
             result["answer_usage"] = usage_numbers(usage)
+            if result.get("event_id"):  # stand-in answers count toward the daily spending caps
+                db.add_answer_tokens(result["event_id"], usage.input_tokens or 0, usage.output_tokens or 0)
         except Exception as exc:
             result["answer"] = f"(The stand-in model could not answer: {type(exc).__name__})"
         result["answered_by"] = MODEL_NAME
     return result
 
 
-@app.get("/api/stats")
-def stats(username: str):
-    username = check_username(username)
+def user_stats(username: str) -> dict:
     t = db.user_totals(username)
     return {
         "username": username,
         "totals": t,
-        "used": describe(t["ai_kwh"], t["ai_gallons"]),
+        # Lifetime "used" includes Human First's own checking, not just the prompts sent to Claude.
+        "used": describe(t["ai_kwh"] + t["gate_kwh"], t["ai_gallons"] + t["gate_gallons"]),
+        "used_by_claude": describe(t["ai_kwh"], t["ai_gallons"]),
         "saved": describe(t["saved_kwh"], t["saved_gallons"]),
         "gatekeeper": describe(t["gate_kwh"], t["gate_gallons"]),
         "categories": db.category_counts(username),
@@ -310,9 +406,73 @@ def stats(username: str):
     }
 
 
+@app.get("/api/stats")
+def stats(username: str, x_human_first_code: str = Header(default="")):
+    return user_stats(authed(username, x_human_first_code))
+
+
+@app.post("/api/feedback")
+def feedback(body: FeedbackIn, x_human_first_code: str = Header(default="")):
+    username = authed(body.username, x_human_first_code)
+    if db.feedback_count_last_hour(username) >= 5:
+        raise HTTPException(429, "Thanks! You've sent a lot of feedback this hour. Please try again later.")
+    db.add_feedback(username, body.rating, body.keep_using, body.comment.strip(), body.page)
+    return {"ok": True}
+
+
 @app.get("/api/citations")
 def citations():
-    return citations_for("environment")
+    """Live sources (pinned + approved), for the How it works page."""
+    return [s for s in sources.list_sources() if s["status"] in ("pinned", "approved")]
+
+
+# --- research sources (owner review) -----------------------------------------
+# These change what every user sees (or show everyone's feedback), so they need the owner:
+# either a request from the computer running the server, or the ADMIN_PASSWORD on a hosted copy.
+
+def local_only(request: Request) -> None:
+    pw = request.headers.get("x-admin-password", "")
+    if ADMIN_PASSWORD and pw and secrets.compare_digest(pw, ADMIN_PASSWORD):
+        return
+    behind_proxy = "x-forwarded-for" in request.headers
+    if not behind_proxy and request.client and request.client.host in ("127.0.0.1", "::1", "localhost", "testclient"):
+        return
+    raise HTTPException(403, "Admin only. Enter the admin password.")
+
+
+@app.get("/api/feedback")
+def list_feedback(request: Request):
+    local_only(request)
+    return {"feedback": db.all_feedback()}
+
+
+@app.get("/api/sources")
+def list_sources(request: Request):
+    local_only(request)
+    return {"sources": sources.list_sources(), "runs": sources.research_runs()}
+
+
+@app.post("/api/sources/{source_id}/{action}")
+def review_source(source_id: int, action: str, request: Request):
+    local_only(request)
+    status = {"approve": "approved", "reject": "rejected"}.get(action)
+    if not status or not sources.set_status(source_id, status):
+        raise HTTPException(400, "Unknown source or action.")
+    return {"ok": True, "status": status}
+
+
+@app.post("/api/quotes/{quote_id}/remove")
+def remove_quote(quote_id: int, request: Request):
+    local_only(request)
+    if not sources.remove_quote(quote_id):
+        raise HTTPException(400, "Unknown quote, or a pinned quote (those stay).")
+    return {"ok": True}
+
+
+@app.post("/api/research/refresh")
+async def research_now(request: Request):
+    local_only(request)
+    return await sources.refresh("manual", force=True)
 
 
 @app.get("/api/tokenomics")
@@ -335,6 +495,31 @@ def tokenomics():
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
+SERVER_RE = re.compile(r"^(https://[a-z0-9-]+\.hf\.space|http://(127\.0\.0\.1|localhost):8787)$", re.I)
+
+
+@app.get("/extension.zip")
+def extension_zip(request: Request):
+    """The Chrome extension, pre-set to talk to whichever Human First server you downloaded it from."""
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
+    server = f"{proto}://{host}"
+    if not SERVER_RE.match(server):
+        server = "http://127.0.0.1:8787"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for path in sorted(EXTENSION_DIR.rglob("*")):
+            if path.is_file():
+                data = path.read_bytes()
+                if path.name in ("background.js", "popup.js"):
+                    data = data.replace(b'const DEFAULT_SERVER = "http://127.0.0.1:8787";',
+                                        f'const DEFAULT_SERVER = "{server}";'.encode())
+                z.writestr(f"human-first-extension/{path.relative_to(EXTENSION_DIR)}", data)
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="human-first-extension.zip"'})
 
 
 @app.get("/")

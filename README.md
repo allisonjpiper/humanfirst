@@ -12,11 +12,19 @@ Human First is a gatekeeper for Claude. Before a prompt reaches Claude, it check
 | an **emergency** (suicide, overdose, chest pain) | shows 911, 988, and Poison Control right away, with no AI involved |
 | anything else (coding, writing, learning...) | lets it through to Claude |
 
-If you ask a redirected question again, Human First shows research on AI's costs to people and the
-planet, then lets you choose to **ask Claude anyway**.
+Every redirect card carries a fresh, **word-for-word quote** from current research on AI's costs. Quotes rotate
+so you see something new each time. If you ask a redirected question again, Human First shows three of them,
+then lets you choose to **ask Claude anyway**.
+
+New research is found automatically: once a day, a research agent searches the web for recent articles. New
+sources wait on the dashboard's **Sources** tab until the owner approves them.
 
 Every prompt's estimated **energy (kWh)** and **water (gallons)** is tracked per user over their whole history,
-with everyday comparisons (phone charges, LED-bulb hours, teaspoons, showers).
+with everyday comparisons (phone charges, LED-bulb hours, teaspoons, showers). The total includes the energy and
+water Human First itself uses to check prompts.
+
+**Online copy:** see the link at the top of the report (a Hugging Face Space; the free tier sleeps when idle, so the first
+visit can take about a minute, and its data resets when the Space restarts). The steps below run it on your own computer.
 
 It has two parts that share one small Python server:
 - **Chrome extension** that works on **claude.ai** (the real product)
@@ -72,7 +80,8 @@ Leave this window open. To stop it, press **Ctrl+C** (this ends the whole server
 
 ### 4. Try it in the browser (no extension needed)
 
-Open **http://127.0.0.1:8787**, pick any username, and use the **Try it** tab.
+Open **http://127.0.0.1:8787**, pick any username, and use the **Try it** tab. You'll get a private **sign-in code**
+(top right). Keep it: you need it for the extension, or to sign in on another device.
 Click the example chips to see each kind of redirect. Prompts that pass the check are answered by a
 stand-in model (`gpt-6-luna`), since the course key cannot call Claude.
 The **My footprint** tab shows your lifetime energy and water totals.
@@ -82,8 +91,9 @@ The **My footprint** tab shows your lifetime energy and water totals.
 1. Open `chrome://extensions` in Chrome.
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and choose the `extension` folder inside this repo.
-4. Click the Human First icon in the toolbar (pin it from the puzzle-piece menu), type the **same username**
-   you used on the dashboard, and click **Save**. It should say **Connected**.
+4. Click the Human First icon in the toolbar (pin it from the puzzle-piece menu). Leave the server as
+   `http://127.0.0.1:8787`, enter the **same username and sign-in code** you have on the dashboard, and click
+   **Save and connect**. It should say **Connected**. (Or download a ready-made copy from the "Try it" page.)
 5. Go to **https://claude.ai** and send a prompt. Try "Where is the nearest cafe?"
 
 The server from step 3 must be running. If it isn't, the extension lets prompts through to Claude
@@ -105,6 +115,9 @@ prompt ─▶ 1. Crisis screen (keywords, no AI) ──▶ emergency card (911 /
   search query, injection flag). It only blocks when confidence ≥ 0.7.
 - **Redirect agent:** writes a short, kind card. Its tools are `map_search`, `web_search`,
   `find_professional`, and `human_support`. Any link it writes that did not come from a tool is removed.
+- **Research agent + Quote picker (daily, background):** the research agent web-searches for recent articles. The server
+  fetches each page itself, and the quote picker chooses sentences **by number only**, so every quote is copied from the page.
+  New sources stay hidden until approved on the Sources tab (which only works from the computer running the server).
 - **Cost controls:** a shared verdict cache (the same question is never classified twice), provider prompt
   caching (about 85% of gatekeeper input tokens are cached), no AI call for crises, repeats, or searchable
   cards, per-call token limits, 12 prompts per minute and 60k tokens per day per user, and a 2M tokens per day
@@ -122,11 +135,21 @@ Anthropic doesn't publish per-prompt energy or water figures, so these are **est
 
 ---
 
+## Deploying your own online copy (optional)
+
+1. Create a free [Hugging Face](https://huggingface.co) account and a **write** access token.
+2. `.venv/bin/hf auth login` and paste the token.
+3. `.venv/bin/python deploy/deploy_space.py <your-hf-username>/humanfirst` (uploads only the app files).
+4. In the Space's **Settings → Variables and secrets**, add the secrets `PORTKEY_API_KEY` and `ADMIN_PASSWORD`.
+5. Open `https://<your-hf-username>-humanfirst.hf.space`. The Admin tab asks for `ADMIN_PASSWORD`.
+
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests -q          # 18 safety tests, no API calls
-.venv/bin/python tests/eval_gatekeeper.py    # live accuracy + injection + token eval (about 34 API calls)
+.venv/bin/python -m pytest tests -q            # 33 safety tests, no API calls
+.venv/bin/python tests/eval_gatekeeper.py      # live: 48 hard labeled prompts + 8 attacks (about 56 API calls)
+.venv/bin/python tests/measure_pipeline.py     # live: tokens/cost through the full pipeline + prompt-size experiment
+.venv/bin/python tests/verify_pinned_quotes.py # live: re-checks every pinned quote word-for-word on its source page
 ```
 
 ## Project layout
@@ -136,11 +159,13 @@ backend/
   app.py          FastAPI server and the decision pipeline
   agents.py       crisis screen, gatekeeper agent, redirect agent + tools, stand-in answerer
   footprint.py    energy / water estimates and everyday comparisons
-  citations.py    fixed, hand-checked research citations
+  sources.py      research sources, rotating quotes, research agent + quote picker
   db.py           SQLite: users, prompt history, verdict cache
   config.py       .env loading (repo folder, then parent), budgets
   static/         web dashboard + test chat
 extension/        Chrome extension for claude.ai (Manifest V3)
+deploy/           Hugging Face Space upload script and Space page
+Dockerfile        container for the hosted copy
 tests/            offline safety tests + live evaluation
 data/             created on first run (local database, eval results)
 ```

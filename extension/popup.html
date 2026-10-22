@@ -3,20 +3,21 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { width: 300px; margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    body { width: 310px; margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #f6f3ec; color: #23302a; }
     header { background: #fffdf8; border-bottom: 1px solid #e4ded1; padding: 12px 14px; }
     .name { font-weight: 700; color: #3f6f5a; }
     .tag { font-size: 12px; color: #6b756f; }
     main { padding: 12px 14px; }
-    label { font-size: 12px; color: #6b756f; font-weight: 600; }
-    .row { display: flex; gap: 6px; margin: 4px 0 10px; }
-    input { flex: 1; font: inherit; padding: 6px 8px; border: 1px solid #e4ded1; border-radius: 8px; }
-    button { font: inherit; font-weight: 600; background: #3f6f5a; color: #fff; border: 0; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
-    .status { font-size: 12px; margin-bottom: 10px; }
+    label { display: block; font-size: 12px; color: #6b756f; font-weight: 600; margin-top: 8px; }
+    input { width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; border: 1px solid #e4ded1; border-radius: 8px; margin-top: 3px; }
+    button { font: inherit; font-weight: 600; background: #3f6f5a; color: #fff; border: 0; border-radius: 8px;
+      padding: 7px 12px; cursor: pointer; margin-top: 10px; width: 100%; }
+    .status { font-size: 12px; margin-bottom: 4px; }
     .ok { color: #3f6f5a; } .bad { color: #b3261e; }
-    .stats { background: #fffdf8; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+    .stats { background: #fffdf8; border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 13px; }
     .stats b { font-size: 15px; }
+    .hint { font-size: 11px; color: #6b756f; margin-top: 3px; }
     a { color: #3f6f5a; font-weight: 600; }
   </style>
 </head>
@@ -27,10 +28,16 @@
   </header>
   <main>
     <div class="status" id="status">Checking server...</div>
-    <label for="user">Your Human First username</label>
-    <div class="row"><input id="user" placeholder="e.g. allison"><button id="save">Save</button></div>
+    <label for="server">Human First server</label>
+    <input id="server" placeholder="http://127.0.0.1:8787">
+    <div class="hint">Use the link you were sent, or http://127.0.0.1:8787 if you run it yourself.</div>
+    <label for="user">Username</label>
+    <input id="user" placeholder="the name you picked on the website">
+    <label for="code">Sign-in code</label>
+    <input id="code" placeholder="shown at the top of the website, e.g. K7QM-4TZP">
+    <button id="save">Save and connect</button>
     <div class="stats" id="stats" hidden></div>
-    <a id="dash" href="http://127.0.0.1:8787/#footprint" target="_blank">Open my footprint dashboard</a>
+    <a id="dash" href="#" target="_blank">Open my footprint dashboard</a>
   </main>
   <script src="popup.js"></script>
 </body>

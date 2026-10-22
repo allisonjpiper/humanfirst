@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 data/*.db
 .DS_Store
+
+# report and slides are submitted on Canvas; screenshots show personal account details
+report/
