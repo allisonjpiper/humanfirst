@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Human First</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28"><circle cx="11" cy="10" r="4.5" fill="currentColor"/><circle cx="21" cy="10" r="4.5" fill="currentColor" opacity=".55"/><path d="M3 27c0-5 3.6-9 8-9s8 4 8 9" fill="currentColor"/><path d="M13 27c0-5 3.6-9 8-9s8 4 8 9" fill="currentColor" opacity=".55"/></svg>
+      </span>
+      <div>
+        <div class="brand-name">Human First</div>
+        <div class="brand-tag">AI when it helps. People when it matters.</div>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs" hidden>
+      <button data-tab="chat" class="active">Try it</button>
+      <button data-tab="footprint">My footprint</button>
+      <button data-tab="about">How it works</button>
+    </nav>
+    <div class="user" id="userbox" hidden>
+      <span id="username"></span>
+      <button class="link" id="logout">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Sign in -->
+    <section id="login" class="panel login">
+      <h1>Sign in to track your footprint</h1>
+      <p>Use the same name here and in the Human First Chrome extension, so every prompt you send to Claude
+        is added to one lifetime total.</p>
+      <form id="loginForm">
+        <input id="loginName" placeholder="Pick a username, e.g. allison" autocomplete="username" required>
+        <button class="primary" type="submit">Continue</button>
+      </form>
+      <p class="muted small" id="loginError"></p>
+      <p class="muted small">No password needed in this prototype. Your data stays in a database on this computer.</p>
+    </section>
+
+    <!-- Chat -->
+    <section id="chat" class="panel" hidden>
+      <div class="chat-wrap">
+        <div class="chat-head">
+          <h2>Try Human First</h2>
+          <p class="muted">Type anything you would ask Claude. Human First checks it first. Prompts that pass are
+            answered by a stand-in model here; with the Chrome extension, they go to Claude itself.</p>
+          <div class="chips" id="examples"></div>
+        </div>
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <form id="chatForm" class="composer">
+          <textarea id="prompt" rows="2" placeholder="Ask anything..." required></textarea>
+          <button class="primary" type="submit" id="send">Send</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Footprint -->
+    <section id="footprint" class="panel" hidden>
+      <h2>Your AI footprint</h2>
+      <p class="muted">Every prompt checked by Human First, from this page and from claude.ai.
+        All numbers are estimates (see <a href="#" data-goto="about">How it works</a>).</p>
+      <div class="tiles" id="tiles"></div>
+      <div class="grid2">
+        <div class="card">
+          <h3>Where your prompts went</h3>
+          <div id="bars"></div>
+        </div>
+        <div class="card">
+          <h3>Gatekeeper's own cost</h3>
+          <p class="muted small">Checking prompts uses AI too. We count it so the savings are honest.</p>
+          <div id="gatecost"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Prompt history</h3>
+        <div class="table-wrap"><table id="history"><thead><tr>
+          <th>When</th><th>From</th><th>Prompt</th><th>Decision</th><th>Energy (kWh)</th><th>Water (gal)</th><th>Tokens</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- About -->
+    <section id="about" class="panel prose" hidden>
+      <h2>How Human First works</h2>
+      <ol class="steps">
+        <li><b>Crisis screen (no AI).</b> Words like "suicide", "overdose", or "chest pain" immediately show 911, 988,
+          and Poison Control. A model never improvises in an emergency.</li>
+        <li><b>Repeat check (no AI).</b> If you ask something you were just redirected on, you see research on AI's
+          costs to people and the planet, then you choose whether to ask AI anyway.</li>
+        <li><b>Gatekeeper agent.</b> Sorts the prompt into <i>appropriate</i>, <i>personal</i>, <i>high-stakes</i>,
+          or <i>searchable</i>. It reads your prompt only as data, so "ignore your rules" tricks don't work.</li>
+        <li><b>Redirect agent.</b> Only for blocked prompts. Uses tools to find real links (Google Maps, Yelp, care
+          finders, support organizations) and writes a short note pointing you to a person or a better tool.</li>
+      </ol>
+      <h3>Where the footprint numbers come from</h3>
+      <p>Anthropic does not publish energy or water use per Claude prompt, so Human First estimates a range:</p>
+      <ul>
+        <li><b>Low, 0.24 Wh and 0.26 mL water:</b> Google's measured median Gemini text prompt (Aug 2025).</li>
+        <li><b>High, 1.86 Wh:</b> MIT Technology Review's measurement of a large open model, Llama 3.1 405B
+          (6,706 joules per response, May 2025).</li>
+        <li><b>Central, ~0.67 Wh:</b> the midpoint (geometric mean) of the two. Your totals use this.</li>
+        <li><b>Water:</b> Google's on-site cooling rate (1.08 mL per Wh), times 4 to include the water used to
+          generate the electricity (about three-quarters of data-center water, per a 2026 Harvard Salata Institute study).</li>
+        <li>Longer prompts cost more: the estimate grows by 1 + (prompt tokens / 2,000).</li>
+      </ul>
+      <h3>Everyday comparisons</h3>
+      <ul>
+        <li>Full smartphone charge: 15 Wh &middot; 10 W LED bulb for an hour: 10 Wh &middot; Average U.S. home for a day: 29.6 kWh (EIA)</li>
+        <li>Teaspoon: 4.9 mL &middot; Bottle of water: 500 mL &middot; Toilet flush: 1.6 gal &middot; 5-minute shower: 10 gal</li>
+      </ul>
+      <h3>Read more</h3>
+      <div id="aboutCitations"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
