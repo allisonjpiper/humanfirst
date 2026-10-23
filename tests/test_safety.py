@@ -385,11 +385,9 @@ def test_stand_in_answers_count_toward_the_daily_budget(monkeypatch):
     assert r.status_code == 429  # 60k tokens of answers used up the daily budget
 
 
-def test_extension_download_points_at_the_server_it_came_from():
+def test_extension_download_only_points_at_the_local_server():
     import io, zipfile
-    r = client.get("/extension.zip", headers={"x-forwarded-proto": "https", "x-forwarded-host": "piper-humanfirst.hf.space"})
-    z = zipfile.ZipFile(io.BytesIO(r.content))
-    assert 'const DEFAULT_SERVER = "https://piper-humanfirst.hf.space";' in z.read("human-first-extension/background.js").decode()
-    r = client.get("/extension.zip", headers={"x-forwarded-proto": "https", "x-forwarded-host": "evil.example.com"})
-    z = zipfile.ZipFile(io.BytesIO(r.content))
-    assert 'const DEFAULT_SERVER = "http://127.0.0.1:8787";' in z.read("human-first-extension/popup.js").decode()
+    for host in ("127.0.0.1:8787", "evil.example.com"):
+        r = client.get("/extension.zip", headers={"x-forwarded-proto": "http", "x-forwarded-host": host})
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        assert 'const DEFAULT_SERVER = "http://127.0.0.1:8787";' in z.read("human-first-extension/background.js").decode()

@@ -28,11 +28,11 @@ PORTKEY_BASE_URL = "https://api.portkey.ai/v1"
 # Course key: gpt-6-luna only.
 MODEL_NAME = os.environ.get("HUMANFIRST_MODEL", "gpt-6-luna")
 
-# 127.0.0.1 on a laptop. A hosted copy (Hugging Face Space) sets HUMANFIRST_HOST=0.0.0.0.
+# Only reachable from this computer by default.
 HOST = os.environ.get("HUMANFIRST_HOST", "127.0.0.1")
 
-# Password for the Sources and feedback pages on a hosted copy. On a laptop they also work
-# without it, from the computer running the server.
+# Optional password for the Admin tab (sources, feedback). Without it, the Admin tab works only
+# from the computer running the server, which is the normal local setup.
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 NEW_ACCOUNTS_PER_IP_PER_HOUR = 20
 PORT = int(os.environ.get("HUMANFIRST_PORT") or os.environ.get("PORT") or 8787)

@@ -40,8 +40,8 @@ async function refresh() {
 
 $("save").addEventListener("click", async () => {
   let server = $("server").value.trim().replace(/\/+$/, "") || DEFAULT_SERVER;
-  if (!/^https:\/\/[a-z0-9-]+\.hf\.space$|^http:\/\/(127\.0\.0\.1|localhost):8787$/i.test(server)) {
-    $("status").innerHTML = `<span class="bad">Use an https://….hf.space link or http://127.0.0.1:8787</span>`;
+  if (!/^http:\/\/(127\.0\.0\.1|localhost):8787$/i.test(server)) {
+    $("status").innerHTML = `<span class="bad">Use http://127.0.0.1:8787 (the server running on this computer)</span>`;
     return;
   }
   const name = $("user").value.trim().toLowerCase();

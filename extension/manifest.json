@@ -8,8 +8,7 @@
   ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
-    "http://localhost:8787/*",
-    "https://*.hf.space/*"
+    "http://localhost:8787/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -1,5 +1,5 @@
 // Human First background worker: the only part of the extension that talks to the Human First
-// server (local or hosted). Content scripts on claude.ai can't call it directly because of CORS.
+// server running on this computer. Content scripts on claude.ai can't call it directly because of CORS.
 
 const DEFAULT_SERVER = "http://127.0.0.1:8787";
 

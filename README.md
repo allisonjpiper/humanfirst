@@ -17,14 +17,11 @@ so you see something new each time. If you ask a redirected question again, Huma
 then lets you choose to **ask Claude anyway**.
 
 New research is found automatically: once a day, a research agent searches the web for recent articles. New
-sources wait on the dashboard's **Sources** tab until the owner approves them.
+sources wait on the dashboard's **Admin** tab until the owner approves them.
 
 Every prompt's estimated **energy (kWh)** and **water (gallons)** is tracked per user over their whole history,
 with everyday comparisons (phone charges, LED-bulb hours, teaspoons, showers). The total includes the energy and
 water Human First itself uses to check prompts.
-
-**Online copy:** see the link at the top of the report (a Hugging Face Space; the free tier sleeps when idle, so the first
-visit can take about a minute, and its data resets when the Space restarts). The steps below run it on your own computer.
 
 It has two parts that share one small Python server:
 - **Chrome extension** that works on **claude.ai** (the real product)
@@ -32,7 +29,7 @@ It has two parts that share one small Python server:
 
 ---
 
-## Run it (about 5 minutes)
+## Run it locally from a fresh clone (about 5 minutes)
 
 You need **Python 3.10+** and (for the extension) **Google Chrome**.
 
@@ -40,16 +37,16 @@ You need **Python 3.10+** and (for the extension) **Google Chrome**.
 
 macOS / Linux:
 ```bash
-git clone <this repo's URL> human-first
-cd human-first
+git clone https://github.com/allisonjpiper/humanfirst.git
+cd humanfirst
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
 Windows (PowerShell):
 ```powershell
-git clone <this repo's URL> human-first
-cd human-first
+git clone https://github.com/allisonjpiper/humanfirst.git
+cd humanfirst
 py -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
@@ -61,7 +58,10 @@ It looks for a `.env` file in **this folder first, then in the folder one level 
 If your `.env` is already one folder up, skip this step. Otherwise:
 
 ```bash
-cp .env.example .env      # then paste your key after PORTKEY_API_KEY=
+cp .env.example .env      # macOS / Linux; then paste your key after PORTKEY_API_KEY=
+```
+```powershell
+copy .env.example .env    # Windows
 ```
 
 ### 3. Start the server
@@ -117,7 +117,7 @@ prompt ─▶ 1. Crisis screen (keywords, no AI) ──▶ emergency card (911 /
   `find_professional`, and `human_support`. Any link it writes that did not come from a tool is removed.
 - **Research agent + Quote picker (daily, background):** the research agent web-searches for recent articles. The server
   fetches each page itself, and the quote picker chooses sentences **by number only**, so every quote is copied from the page.
-  New sources stay hidden until approved on the Admin tab (open on the computer running the server, or with ADMIN_PASSWORD online).
+  New sources stay hidden until approved on the Admin tab (it opens on the computer running the server).
 - **Cost controls:** a shared verdict cache (the same question is never classified twice), provider prompt
   caching (about 85% of gatekeeper input tokens are cached), no AI call for crises, repeats, or searchable
   cards, per-call token limits, 12 prompts per minute and 60k tokens per day per user, and a 2M tokens per day
@@ -134,14 +134,6 @@ Anthropic doesn't publish per-prompt energy or water figures, so these are **est
   (Harvard Salata Institute, 2026).
 
 ---
-
-## Deploying your own online copy (optional)
-
-1. Create a free [Hugging Face](https://huggingface.co) account and a **write** access token.
-2. `.venv/bin/hf auth login` and paste the token.
-3. `.venv/bin/python deploy/deploy_space.py <your-hf-username>/humanfirst` (uploads only the app files).
-4. In the Space's **Settings → Variables and secrets**, add the secrets `PORTKEY_API_KEY` and `ADMIN_PASSWORD`.
-5. Open `https://<your-hf-username>-humanfirst.hf.space`. The Admin tab asks for `ADMIN_PASSWORD`.
 
 ## Tests
 
@@ -164,8 +156,6 @@ backend/
   config.py       .env loading (repo folder, then parent), budgets
   static/         web dashboard + test chat
 extension/        Chrome extension for claude.ai (Manifest V3)
-deploy/           Hugging Face Space upload script and Space page
-Dockerfile        container for the hosted copy
 tests/            offline safety tests + live evaluation
 data/             created on first run (local database, eval results)
 ```

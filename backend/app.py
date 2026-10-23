@@ -442,7 +442,7 @@ def citations():
 
 # --- research sources (owner review) -----------------------------------------
 # These change what every user sees (or show everyone's feedback), so they need the owner:
-# either a request from the computer running the server, or the ADMIN_PASSWORD on a hosted copy.
+# a request from the computer running the server (or, optionally, the ADMIN_PASSWORD environment variable).
 
 def local_only(request: Request) -> None:
     pw = request.headers.get("x-admin-password", "")
@@ -512,7 +512,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
-SERVER_RE = re.compile(r"^(https://[a-z0-9-]+\.hf\.space|http://(127\.0\.0\.1|localhost):8787)$", re.I)
+SERVER_RE = re.compile(r"^http://(127\.0\.0\.1|localhost):8787$", re.I)
 
 
 @app.get("/cards.js")
