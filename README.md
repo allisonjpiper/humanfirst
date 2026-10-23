@@ -31,7 +31,10 @@ It has two parts that share one small Python server:
 
 ## Run it locally from a fresh clone (about 5 minutes)
 
-You need **Python 3.10+** and (for the extension) **Google Chrome**.
+You need **Python 3.11 or newer** and (for the extension) **Google Chrome**.
+Check with `python3 --version` (Windows: `py --version`). The `python3` built into macOS is 3.9, which is too old.
+If yours is older than 3.11, install the current version from [python.org/downloads](https://www.python.org/downloads/) and use
+`python3.13` (or whichever version you installed) in place of `python3` below.
 
 ### 1. Get the code and install
 

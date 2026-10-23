@@ -31,6 +31,8 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 
+if sys.version_info < (3, 11):
+    sys.exit(f"Human First needs Python 3.11 or newer (this is {sys.version.split()[0]}). See README step 1.")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
