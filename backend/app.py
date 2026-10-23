@@ -62,7 +62,7 @@ from config import (
     USER_DAILY_TOKEN_BUDGET,
     USER_REQUESTS_PER_MINUTE,
 )
-from footprint import describe, estimate_tokens, gatekeeper_footprint, prompt_footprint
+from footprint import at_scale, describe, estimate_tokens, gatekeeper_footprint, per_prompt_units, prompt_footprint, yearly
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -211,7 +211,8 @@ def budget_guard(username: str) -> None:
 def footprint_payload(prompt: str) -> dict:
     fp = prompt_footprint(estimate_tokens(prompt))
     c = fp["central"]
-    return {**describe(c["kwh"], c["gallons"]), "range": fp}
+    return {**describe(c["kwh"], c["gallons"]), "range": fp,
+            "units": per_prompt_units(c["kwh"], c["gallons"]), "scale": at_scale(c["kwh"], c["gallons"])}
 
 
 # --- core decision -------------------------------------------------------
@@ -393,7 +394,20 @@ async def chat(body: PromptIn, x_human_first_code: str = Header(default="")):
 
 def user_stats(username: str) -> dict:
     t = db.user_totals(username)
+    used_kwh, used_gal = t["ai_kwh"] + t["gate_kwh"], t["ai_gallons"] + t["gate_gallons"]
+    first = db.first_event_time(username)
+    days = max(1.0, (db.now() - first).total_seconds() / 86400) if first else 1.0
+    share = (t["redirected"] / t["prompts"]) if t["prompts"] else 0
+    central = prompt_footprint(50)["central"]  # a typical short prompt
+    world = at_scale(central["kwh"] * share, central["gallons"] * share)
     return {
+        "year": yearly(used_kwh / days, used_gal / days),
+        "days_tracked": round(days, 1),
+        "redirect_share": share,
+        "if_everyone": {**world, "sentence": (
+            f"If every chatbot user sent {share:.0%} of their prompts to people and better tools like you do, the world would "
+            f"save about {world['mwh_per_day']:,.0f} MWh of electricity (a day's power for {world['homes']} U.S. homes) and "
+            f"{world['gallons_per_day'] / 1e6:.1f} million gallons of water ({world['pools']} Olympic pools), every day.")},
         "username": username,
         "totals": t,
         # Lifetime "used" includes Human First's own checking, not just the prompts sent to Claude.
@@ -499,6 +513,12 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
 SERVER_RE = re.compile(r"^(https://[a-z0-9-]+\.hf\.space|http://(127\.0\.0\.1|localhost):8787)$", re.I)
+
+
+@app.get("/cards.js")
+def cards_js():
+    """The card designs, shared with the Chrome extension (one source of truth)."""
+    return FileResponse(EXTENSION_DIR / "cards.js", media_type="text/javascript")
 
 
 @app.get("/extension.zip")

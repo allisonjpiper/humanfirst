@@ -135,8 +135,8 @@ input:focus, textarea:focus { outline: 2px solid var(--sage-soft); border-color:
 .cite a { font-weight: 600; }
 .cite .src { font-size: .82rem; color: var(--muted); }
 .cite .take { font-size: .92rem; margin-top: .2rem; }
-blockquote { margin: .35rem 0 .2rem; padding-left: .8rem; border-left: 3px solid var(--line); font-style: italic; font-size: .93rem; }
-blockquote .who { display: block; font-style: normal; font-size: .8rem; color: var(--muted); margin-top: .15rem; }
+.card.source blockquote { margin: .35rem 0 .2rem; padding-left: .8rem; border-left: 3px solid var(--line); font-style: italic; font-size: .93rem; }
+.card.source blockquote .who { display: block; font-style: normal; font-size: .8rem; color: var(--muted); margin-top: .15rem; }
 .quote { background: var(--bg); border-radius: 10px; padding: .6rem .8rem; margin: .7rem 0 .1rem; font-size: .88rem; }
 .quote a { font-weight: 700; text-decoration: none; }
 .quote .src, .cite .src { font-size: .8rem; color: var(--muted); }
@@ -222,3 +222,18 @@ details.card summary { cursor: pointer; }
 .ext-help { margin-top: .8rem; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .55rem .9rem; font-size: .9rem; }
 .ext-help summary { cursor: pointer; }
 .ext-help ol { margin: .5rem 0 .2rem; }
+
+/* footprint: scale banner */
+.scale-banner { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0 0 1rem; border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow); }
+.scale-banner:empty { display: none; }
+.sb-col { padding: 1.1rem 1.3rem; background: #2f3d36; color: #f3efe6; }
+.sb-world { background: linear-gradient(120deg, #3f6f5a, #2c5a47); }
+.sb-label { font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .8; }
+.sb-big { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-size: 1.7rem; font-weight: 600; margin: .2rem 0 .3rem; line-height: 1.2; }
+.sb-big span { font-family: inherit; font-size: .95rem; font-weight: 400; opacity: .85; }
+.sb-text { font-size: .86rem; opacity: .9; }
+.impact-wrap { max-width: 620px; margin-top: .5rem; font-size: 15px; }
+.msg-bot .hfc { max-width: 640px; font-size: 15px; }
+h1, h2 { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-weight: 600; }
+@media (max-width: 760px) { .scale-banner { grid-template-columns: 1fr; } }

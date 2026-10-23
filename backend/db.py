@@ -241,6 +241,12 @@ def user_totals(username: str) -> dict:
     return {k: (row[k] or 0) for k in row.keys()}
 
 
+def first_event_time(username: str) -> datetime | None:
+    with _lock:
+        row = _conn.execute("SELECT MIN(created_at) AS t FROM events WHERE username = ?", (username,)).fetchone()
+    return datetime.fromisoformat(row["t"]) if row and row["t"] else None
+
+
 def category_counts(username: str) -> dict:
     with _lock:
         rows = _conn.execute(

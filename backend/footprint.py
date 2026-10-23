@@ -39,6 +39,13 @@ Everyday comparisons
   16.9 oz water bottle       500 mL
   Toilet flush               1.6 gal  (U.S. federal maximum)
   5-minute shower            10 gal   (2.0 gal/min WaterSense showerhead)
+  Olympic swimming pool      660,000 gal (2,500 m³)
+
+At scale
+  ChatGPT alone answers about 2.5 billion prompts a day (OpenAI to Axios, July 2025,
+  reported by TechCrunch). One prompt's footprint looks tiny; the same prompt at that
+  scale does not. Cards show both, because a tester said the per-prompt numbers felt
+  too small to matter.
 """
 
 from __future__ import annotations
@@ -67,6 +74,50 @@ WATER_COMPARISONS = [
     (500.0, "16.9 oz bottle of water", "16.9 oz bottles of water"),
     (4.93, "teaspoon of water", "teaspoons of water"),
 ]
+
+
+DAILY_CHATBOT_PROMPTS = 2_500_000_000
+OLYMPIC_POOL_GALLONS = 660_000
+HOME_DAY_KWH = 29.6
+SHOWER_GALLONS = 10
+
+
+def _round_people(n: float) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f} million"
+    if n >= 10_000:
+        return f"{round(n, -3):,.0f}"
+    if n >= 100:
+        return f"{round(n, -1):,.0f}"
+    return f"{n:,.0f}" if n >= 10 else f"{n:.1f}"
+
+
+def at_scale(kwh: float, gallons: float, prompts_per_day: int = DAILY_CHATBOT_PROMPTS) -> dict:
+    """What this footprint becomes when it happens as often as people use chatbots."""
+    day_kwh, day_gal = kwh * prompts_per_day, gallons * prompts_per_day
+    pools = day_gal / OLYMPIC_POOL_GALLONS
+    return {
+        "prompts_per_day": prompts_per_day,
+        "mwh_per_day": day_kwh / 1000,
+        "gallons_per_day": day_gal,
+        "homes": _round_people(day_kwh / HOME_DAY_KWH),
+        "showers": _round_people(day_gal / SHOWER_GALLONS),
+        "pools": f"{pools:.1f}" if pools < 10 else f"{pools:,.0f}",
+        "sentence": (f"Chatbots answer about 2.5 billion prompts a day. At this size, that's "
+                     f"{day_kwh / 1000:,.0f} MWh of electricity (a day's power for {_round_people(day_kwh / HOME_DAY_KWH)} U.S. homes) "
+                     f"and {day_gal / 1e6:.1f} million gallons of water ({pools:.1f} Olympic pools), every day."),
+    }
+
+
+def per_prompt_units(kwh: float, gallons: float) -> dict:
+    """Human-sized units for one prompt (Wh and mL), next to the kWh and gallons totals."""
+    ml = gallons * ML_PER_GALLON
+    return {"wh": kwh * 1000, "ml": ml, "teaspoons": ml / 4.93}
+
+
+def yearly(kwh_per_day: float, gallons_per_day: float) -> dict:
+    """A user's footprint projected over a year at their current pace."""
+    return {**describe(kwh_per_day * 365, gallons_per_day * 365)}
 
 
 def estimate_tokens(text: str) -> int:

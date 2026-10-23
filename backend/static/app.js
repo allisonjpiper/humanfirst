@@ -26,6 +26,9 @@ const CATEGORY_LABEL = {
   repeat: "You asked again",
 };
 
+// ---------- shared card design (same file the Chrome extension uses) ----------
+document.head.insertAdjacentHTML("beforeend", `<style>${HFCards.css}</style>`);
+
 // ---------- helpers ----------
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -160,7 +163,7 @@ function renderResult(r, prompt) {
   if (r.decision === "allow" || r.decision === "override") {
     const unchecked = r.category === "unchecked" ? `<div class="note">${esc(r.reason)}</div>` : "";
     return `<div class="bubble">${esc(r.answer || "")}</div>${unchecked}
-      ${footprintLine(fp, true, r.check)}${tokenLine(r)}`;
+      <div class="impact-wrap">${HFCards.impact(fp, r.check, "used")}</div>${tokenLine(r)}`;
   }
   if (r.decision === "repeat") {
     const id = "ov" + Math.random().toString(36).slice(2);
@@ -168,20 +171,9 @@ function renderResult(r, prompt) {
       const btn = document.getElementById(id);
       if (btn) btn.addEventListener("click", () => send(prompt, true, btn));
     });
-    return `<div class="hf-card cat-repeat">
-      <span class="tag">${CATEGORY_LABEL.repeat}</span>
-      <h4>Before you ask again, here is what the research says</h4>
-      <p>You were pointed elsewhere on this a moment ago. AI answers carry real costs: to the planet, and to
-        the human connections that questions like this one build.</p>
-      ${renderCitations(r.citations)}
-      <div class="card-actions">
-        <button class="secondary" id="${id}">Ask AI anyway</button>
-      </div></div>${footprintLine(fp, false, r.check)}`;
+    return HFCards.repeat(r, { actions: `<button class="hfc-secondary" id="${id}">Ask AI anyway</button>` });
   }
-  const inj = !r.injection_attempt ? "" : r.category === "filtered"
-    ? `<div class="note">This prompt tried to give Human First instructions, and the model provider's safety filter refused it, so it was blocked rather than sent unchecked.</div>`
-    : `<div class="note">Human First noticed this prompt tried to give it instructions. It checked the real question instead.</div>`;
-  return renderCard(r.card, r.decision === "crisis" ? "crisis" : r.category) + inj + footprintLine(fp, false, r.check);
+  return HFCards.redirect(r, { hint: true });
 }
 
 async function send(prompt, override = false, btn = null) {
@@ -233,6 +225,19 @@ async function loadFootprint() {
       <div class="cmp">${t.sent_to_ai} sent to AI &middot; ${t.redirected} redirected</div>
       <div class="big">${t.redirected && t.prompts ? Math.round((100 * t.redirected) / t.prompts) : 0}<span class="unit">%</span></div>
       <div class="cmp">of your questions went to people or better tools</div></div>`;
+
+  const yr = s.year, world = s.if_everyone;
+  $("#scaleBanner").innerHTML = t.prompts ? `
+    <div class="sb-col">
+      <div class="sb-label">Your year at this pace</div>
+      <div class="sb-big">${num(yr.kwh)} <span>kWh</span> · ${num(yr.gallons)} <span>gal</span></div>
+      <div class="sb-text">${esc(yr.energy_comparison)} and ${esc(yr.water_comparison)}, based on your ${s.days_tracked < 2 ? "first day" : Math.round(s.days_tracked) + " days"} of use.</div>
+    </div>
+    <div class="sb-col sb-world">
+      <div class="sb-label">If everyone did what you do</div>
+      <div class="sb-big">${esc(world.homes)} <span>homes powered</span> · ${esc(world.pools)} <span>Olympic pools</span></div>
+      <div class="sb-text">${esc(world.sentence)} (Based on ChatGPT's 2.5 billion prompts a day.)</div>
+    </div>` : "";
 
   const colors = { appropriate: "var(--clay)", personal: "var(--clay)", high_stakes: "var(--sky)",
     searchable: "var(--gold)", crisis: "var(--red)", override: "var(--ink)", unchecked: "var(--muted)", filtered: "var(--sky)" };
